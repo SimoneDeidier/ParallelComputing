@@ -48,18 +48,21 @@ void domain_save(int_t step) {
 // and set the time step.
 void domain_initialize(void) {
 
+    // first step allocate the heap memory for the buffers (dim 1024 + 2 ghost points)
     buffers[0] = (real_t*) calloc(N+2, sizeof(real_t));
     buffers[1] = (real_t*) calloc(N+2, sizeof(real_t));
     buffers[2] = (real_t*) calloc(N+2, sizeof(real_t));
 
+    // set the first two buffers as the cosine function from 0 to PI
     for(int i = 0; i < N; i++) {
         U_prv(i) = (real_t) cos(M_PI * (real_t) i / (real_t) N);
         U(i) = (real_t) cos(M_PI * (real_t) i / (real_t) N);
     }
 
+    // set the delta time as shown in the slides (<= dx/c)
     dt = dx / c;
 
-    return;
+    return; // complexity: O(N) where N is the length of a buffer
 
 }
 
@@ -69,11 +72,15 @@ void domain_initialize(void) {
 // BEGIN: T2
 void domain_finalize(void) {
 
+    /* free the heap memory allocated at the start
+     * we don't allocate other memory apart of the three buffers, so just
+     * deallocate the three buffers
+     */
     free(buffers[0]);
     free(buffers[1]);
     free(buffers[2]);
     
-    return;
+    return; // complexity: O(1)
 
 }
 // END: T2
@@ -84,13 +91,14 @@ void domain_finalize(void) {
 // BEGIN: T3
 void move_buffers(void) {
 
+    // simply swap the buffers (basic swap algorithm), no new memory needed
     real_t* temp = buffers[0];
 
     buffers[0] = buffers[1];
     buffers[1] = buffers[2];
     buffers[2] = temp;
 
-    return;
+    return; // complexity: O(1)
 
 }
 // END: T3
@@ -101,11 +109,14 @@ void move_buffers(void) {
 // BEGIN: T4
 void time_step(void) {
 
+    /* for each point of the wave in the third buffer calculate its position
+     * using the approximation of the solution of the differential equation
+     */
     for(int i = 0; i < N; i++) {
         U_nxt(i) = -U_prv(i) + 2 * U(i) + pow((dt * c / dx), 2) * (U(i-1) + U(i+1) -2 * U(i));
     }
 
-    return;
+    return; // complexity: O(N)
 
 }
 // END: T4
@@ -116,10 +127,11 @@ void time_step(void) {
 // BEGIN: T5
 void boundary_conditions(void) {
 
+    // set the ghost points (boundaries) with the reflective condition
     U(-1) = U(1);
     U(N) = U(N-2);
 
-    return;
+    return; // complexity: O(1)
 
 }
 // END: T5
@@ -131,6 +143,12 @@ void simulate(void) {
 // BEGIN: T6
     int_t iteration=0;
 
+    /* for each iteration in the simulation do:
+     * 1 - set the boundaries condition in the second buffer (reflective cond.)
+     * 2 - calculate the values of the wave of the next time step in the third buffer
+     * 3 - rotate the buffers
+     * 4 - sve the values every snapshot_freq timestep
+     */
     for(iteration; iteration < max_iteration; iteration++) {
         boundary_conditions();
         time_step();
@@ -138,9 +156,10 @@ void simulate(void) {
         domain_save(iteration / snapshot_freq);
     }
 
-    return;
-// END: T6
+    return; // complexity: O(N*M), where M is the number of iteration of the sim.
+
 }
+// END: T6
 
 
 int main(void) {
