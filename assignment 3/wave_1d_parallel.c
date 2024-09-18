@@ -49,11 +49,13 @@ real_t* buffers[3] = {NULL, NULL, NULL};
 // Save the present time step in a numbered file under 'data/'.
 void domain_save(int_t step) {
 // BEGIN: T8
-    char filename[256];
-    sprintf(filename, "data/%.5ld.dat", step);
-    FILE *out = fopen(filename, "wb");
-    fwrite(&U(0), sizeof(real_t), N, out);
-    fclose(out);
+    if (world_rank == 0) {
+        char filename[256];
+        sprintf(filename, "data/%.5ld.dat", step);
+        FILE *out = fopen(filename, "wb");
+        fwrite(&U(0), sizeof(real_t), N, out);
+        fclose(out);
+    }
 // END: T8
 }
 
@@ -167,24 +169,29 @@ void border_exchange(void){
 // TASK: T7
 // Every process needs to communicate its results
 // to root and assemble it in the root buffer
-void send_data_to_root()
-{
+void send_data_to_root(){
 // BEGIN: T7
-    ;
+    int_t local_N = N / world_size;
+
+    if (world_rank == 0) {
+        // Root process gathers data from all processes
+        MPI_Gather(MPI_IN_PLACE, local_N, MPI_DOUBLE, &U(0), local_N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    } else {
+        // Other processes send their data to the root process
+        MPI_Gather(&U(0), local_N, MPI_DOUBLE, NULL, local_N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
 // END: T7
 }
 
 
 // Main time integration.
-void simulate( void )
-{
+void simulate(void){
     // Go through each time step.
-    for ( int_t iteration=0; iteration<=max_iteration; iteration++ )
+    for(int_t iteration = 0; iteration <= max_iteration; iteration++)
     {
-        if ( (iteration % snapshot_freq)==0 )
-        {
+        if((iteration % snapshot_freq) == 0) {
             send_data_to_root();
-            domain_save ( iteration / snapshot_freq );
+            domain_save(iteration / snapshot_freq);
         }
 
         // Derive step t+1 from steps t and t-1.
@@ -197,8 +204,7 @@ void simulate( void )
 }
 
 
-int main ( int argc, char **argv )
-{
+int main (int argc, char **argv) {
 // TASK: T1c
 // Initialise MPI
 // BEGIN: T1c
@@ -217,23 +223,16 @@ int main ( int argc, char **argv )
     // synchronize all processes
     MPI_Barrier(MPI_COMM_WORLD);
     // start the timer
-    t_start = MPI_Wtime();
+    gettimeofday(&t_start, NULL);
     simulate();
     // end the timer
-    t_end = MPI_Wtime();
-    // find the average, variance and median of the time and print it on outoput
-    double time = t_end - t_start;
-    double avg_time, variance_time, median_time;
-    MPI_Reduce(&time, &avg_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    avg_time /= world_size;
-    MPI_Reduce(&time, &variance_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    variance_time /= world_size;
-    MPI_Reduce(&time, &median_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    median_time /= world_size;
-    if(world_rank == 0){
-        printf("Average time: %f\n", avg_time);
-        printf("Variance time: %f\n", variance_time);
-        printf("Median time: %f\n", median_time);
+    gettimeofday(&t_end, NULL);
+    // calculate elapsed time
+    double time = WALLTIME(t_end) - WALLTIME(t_start);
+    double max_time;
+    MPI_Reduce(&time, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    if(world_rank == 0) {
+        printf("Elapsed time: %f seconds\n", max_time);
     }
 // END: T2
    
@@ -245,5 +244,6 @@ int main ( int argc, char **argv )
     MPI_Finalize();
 // END: T1d
 
-    exit ( EXIT_SUCCESS );
+    exit(EXIT_SUCCESS);
+
 }
