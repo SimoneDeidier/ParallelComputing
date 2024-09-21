@@ -31,3 +31,26 @@ check: dirs sequential parallel
 	rm -rf data_sequential
 clean:
 	-rm -fr sequential parallel data images wave.mp4
+
+run_parallel_13: dirs parallel
+	mpiexec -n 13 --oversubscribe ./parallel
+	make -j4 plot
+	make movie
+
+run_parallel_4: dirs parallel
+	mpiexec -n 4 --oversubscribe ./parallel
+	make -j4 plot
+	make movie
+
+run_parallel_1: dirs parallel
+	mpiexec -n 1 --oversubscribe ./parallel
+	make -j4 plot
+	make movie
+
+run_sequential: dirs sequential
+	./sequential
+	make -j4 plot
+	make movie
+
+test: dirs parallel
+	mpiexec -n 13 --oversubscribe ./parallel

@@ -66,7 +66,10 @@ void domain_save(int_t step) {
 // and set the time step.
 void domain_initialize(void){
 // BEGIN: T3
-    int_t local_N = N / world_size; // Number of points per process
+    int_t local_N = N / world_size;
+    if (world_rank == world_size - 1) {
+        local_N += N % world_size; // Last process takes the remaining points
+    }
     buffers[0] = malloc((local_N + 2) * sizeof(real_t));
     buffers[1] = malloc((local_N + 2) * sizeof(real_t));
     buffers[2] = malloc((local_N + 2) * sizeof(real_t));
@@ -82,6 +85,8 @@ void domain_initialize(void){
         buffers[1] = realloc(buffers[1], (N + 2) * sizeof(real_t));
         buffers[2] = realloc(buffers[2], (N + 2) * sizeof(real_t));
     }
+
+    printf("[ DEBUG ]: Process %d initialized with %ld points\n", world_rank, local_N);
 
     // Set the time step for 1D case.
     dt = dx / c;
@@ -109,7 +114,10 @@ void move_buffer_window(void) {
 // Derive step t+1 from steps t and t-1.
 void time_step(void){
 // BEGIN: T4
-    int_t local_N = N / world_size; // Number of points per process
+    int_t local_N = N / world_size;
+    if (world_rank == world_size - 1) {
+        local_N += N % world_size; // Last process takes the remaining points
+    }
     for(int_t i = 0; i < local_N; i++){
         U_nxt(i) = -U_prv(i) + 2.0*U(i) + (dt*dt*c*c)/(dx*dx) * (U(i-1)+U(i+1)-2.0*U(i));
     }
@@ -122,6 +130,9 @@ void time_step(void){
 void boundary_condition(void) {
 // BEGIN: T6
     int_t local_N = N / world_size;
+    if (world_rank == world_size - 1) {
+        local_N += N % world_size; // Last process takes the remaining points
+    }
 
     // Apply boundary condition only on the processes at the boundaries
     if(world_rank == 0) {
@@ -129,6 +140,7 @@ void boundary_condition(void) {
     }
     if(world_rank == world_size - 1) {
         U(local_N) = U(local_N - 2); // Right boundary
+        printf("[ DEBUG ]: Process %d calculating the boundary pos %d with the value at pos %d\n", world_rank, local_N, local_N - 2);
     }
 // END: T6
 }
@@ -136,21 +148,30 @@ void boundary_condition(void) {
 
 // TASK: T5
 // Communicate the border between processes.
-void border_exchange(void){
+void border_exchange(void) {
 // BEGIN: T5
     MPI_Request request[4];
     int_t local_N = N / world_size;
+    if (world_rank == world_size - 1) {
+        local_N += N % world_size; // Last process takes the remaining points
+    }
 
     // Send left ghost cell to the left neighbor
     if(world_rank > 0) {
         MPI_Isend(&U(0), 1, MPI_DOUBLE, world_rank - 1, 0, MPI_COMM_WORLD, &request[0]);
         MPI_Irecv(&U(-1), 1, MPI_DOUBLE, world_rank - 1, 0, MPI_COMM_WORLD, &request[1]);
+        if(world_rank == world_size - 1) {
+            printf("[ DEBUG ]: Process %d sending the left ghost cell (pos 0) to process %d\n", world_rank, world_rank - 1);
+        }
     }
 
     // Send right ghost cell to the right neighbor
     if(world_rank < world_size - 1) {
         MPI_Isend(&U(local_N - 1), 1, MPI_DOUBLE, world_rank + 1, 0, MPI_COMM_WORLD, &request[2]);
         MPI_Irecv(&U(local_N), 1, MPI_DOUBLE, world_rank + 1, 0, MPI_COMM_WORLD, &request[3]);
+        if(world_rank ==  world_size - 2) {
+            printf("[ DEBUG ]: Prcess %d receiving the right ghost cell (pos %d) from process %d\n", world_rank, local_N, world_rank + 1);
+        }
     }
 
     // Wait for all communications to complete
@@ -171,14 +192,47 @@ void border_exchange(void){
 // to root and assemble it in the root buffer
 void send_data_to_root(){
 // BEGIN: T7
+    // Calculate the number of elements each process will handle
     int_t local_N = N / world_size;
+    if (world_rank == world_size - 1) {
+        local_N += N % world_size; // Last process takes the remaining points
+    }
 
-    if (world_rank == 0) {
-        // Root process gathers data from all processes
-        MPI_Gather(MPI_IN_PLACE, local_N, MPI_DOUBLE, &U(0), local_N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    } else {
-        // Other processes send their data to the root process
-        MPI_Gather(&U(0), local_N, MPI_DOUBLE, NULL, local_N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    // Number of elements to send
+    int sendcount = local_N;
+    // Pointer to the data to send
+    real_t* sendbuf = &U(0);
+
+    // Buffer to receive data on the root process
+    real_t* recvbuf = NULL;
+    // Array to store the number of elements each process will send
+    int recvcounts[world_size];
+    // Array to store the displacements at which to place the incoming data
+    int displs[world_size];
+
+    // If this is the root process, prepare to receive data from all processes
+    if(world_rank == 0) {
+        for(int i = 0; i < world_size; i++) {
+            recvcounts[i] = N / world_size;
+            if (i == world_size - 1) {
+                recvcounts[i] += N % world_size; // Last process takes the remaining points
+            }
+            displs[i] = i * (N / world_size);
+        }
+        // Allocate memory to receive the entire domain
+        recvbuf = malloc(N * sizeof(real_t));
+    }
+
+    // Gather data from all processes to the root process
+    MPI_Gatherv(sendbuf, sendcount, MPI_DOUBLE, recvbuf, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    // If this is the root process, copy the received data into the main buffer
+    if(world_rank == 0) {
+        for(int i = 0; i < N; i++) {
+            U(i) = recvbuf[i];
+        }
+        // Free the receive buffer
+        free(recvbuf);
     }
 // END: T7
 }
@@ -198,7 +252,6 @@ void simulate(void){
         border_exchange();
         boundary_condition();
         time_step();
-
         move_buffer_window();
     }
 }
