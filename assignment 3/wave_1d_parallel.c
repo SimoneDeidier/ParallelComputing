@@ -74,7 +74,7 @@ void domain_initialize(void){
     buffers[1] = malloc((local_N + 2) * sizeof(real_t));
     buffers[2] = malloc((local_N + 2) * sizeof(real_t));
 
-    int_t start = world_rank * local_N;
+    int_t start = world_rank * (N / world_size);
     for (int_t i = 0; i < local_N; i++) {
         U_prv(i) = U(i) = cos(M_PI * (start + i) / (real_t)N);
     }
