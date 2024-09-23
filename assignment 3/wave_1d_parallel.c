@@ -86,8 +86,6 @@ void domain_initialize(void){
         buffers[2] = realloc(buffers[2], (N + 2) * sizeof(real_t));
     }
 
-    printf("[ DEBUG ]: Process %d initialized with %ld points\n", world_rank, local_N);
-
     // Set the time step for 1D case.
     dt = dx / c;
 }
@@ -140,7 +138,6 @@ void boundary_condition(void) {
     }
     if(world_rank == world_size - 1) {
         U(local_N) = U(local_N - 2); // Right boundary
-        printf("[ DEBUG ]: Process %d calculating the boundary pos %d with the value at pos %d\n", world_rank, local_N, local_N - 2);
     }
 // END: T6
 }
@@ -160,18 +157,12 @@ void border_exchange(void) {
     if(world_rank > 0) {
         MPI_Isend(&U(0), 1, MPI_DOUBLE, world_rank - 1, 0, MPI_COMM_WORLD, &request[0]);
         MPI_Irecv(&U(-1), 1, MPI_DOUBLE, world_rank - 1, 0, MPI_COMM_WORLD, &request[1]);
-        if(world_rank == world_size - 1) {
-            printf("[ DEBUG ]: Process %d sending the left ghost cell (pos 0) to process %d\n", world_rank, world_rank - 1);
-        }
     }
 
     // Send right ghost cell to the right neighbor
     if(world_rank < world_size - 1) {
         MPI_Isend(&U(local_N - 1), 1, MPI_DOUBLE, world_rank + 1, 0, MPI_COMM_WORLD, &request[2]);
         MPI_Irecv(&U(local_N), 1, MPI_DOUBLE, world_rank + 1, 0, MPI_COMM_WORLD, &request[3]);
-        if(world_rank ==  world_size - 2) {
-            printf("[ DEBUG ]: Prcess %d receiving the right ghost cell (pos %d) from process %d\n", world_rank, local_N, world_rank + 1);
-        }
     }
 
     // Wait for all communications to complete
