@@ -14,14 +14,12 @@
 #include <mpi.h>    // MPI header file
 // END: T1a
 
-
 // Convert 'struct timeval' into seconds in double prec. floating point
 #define WALLTIME(t) ((double)(t).tv_sec + 1e-6 * (double)(t).tv_usec)
 
 // Option to change numerical precision
 typedef int64_t int_t;
 typedef double real_t;
-
 
 // Buffers for three time steps, indexed with 2 ghost points for the boundary
 real_t* buffers[3] = {NULL, NULL, NULL};
@@ -32,23 +30,19 @@ int world_rank, world_size; // Rank and size of the MPI communicator
 int dims[2]  = {0, 0};      // Dimensions of the Cartesian grid
 MPI_Comm cart_comm;         // Cartesian communicator
 // BEGIN: T1b
-#define U_prv(i,j) buffers[0][((i)+1)*(N+2)+(j)+1]
-#define U(i,j)     buffers[1][((i)+1)*(N+2)+(j)+1]
-#define U_nxt(i,j) buffers[2][((i)+1)*(N+2)+(j)+1]
+#define U_prv(i,j) buffers[0][((i)+1)*(N/dims[1]+2)+(j)+1]
+#define U(i,j)     buffers[1][((i)+1)*(N/dims[1]+2)+(j)+1]
+#define U_nxt(i,j) buffers[2][((i)+1)*(N/dims[1]+2)+(j)+1]
 // END: T1b
 
 // Simulation parameters: size, step count, and how often to save the state
 int_t M = 256,  // rows
     N = 256,    // cols
-    max_iteration = 4000,
-    snapshot_freq = 20;
+    max_iteration = 4000, snapshot_freq = 20;
 
 // Wave equation parameters, time step is derived from the space step
 const real_t c  = 1.0, dx = 1.0, dy = 1.0;
 real_t dt;
-
-
-
 
 // Rotate the time step buffers.
 void move_buffer_window(void) {
@@ -58,20 +52,19 @@ void move_buffer_window(void) {
     buffers[2] = temp;
 }
 
-
 // TASK: T4
 // Set up our three buffers, and fill two with an initial perturbation
 // and set the time step.
 void domain_initialize(void) {
 // BEGIN: T4
     // Calculate the local dimensions for each process
-    int local_N = N / dims[0];
-    int local_M = M / dims[1];
+    int local_M = M / dims[0];
+    int local_N = N / dims[1];
 
     // Allocate memory for the local buffers
-    buffers[0] = malloc((local_N+2)*(local_M+2)*sizeof(real_t));
-    buffers[1] = malloc((local_N+2)*(local_M+2)*sizeof(real_t));
-    buffers[2] = malloc((local_N+2)*(local_M+2)*sizeof(real_t));
+    buffers[0] = malloc((local_M+2)*(local_N+2)*sizeof(real_t));
+    buffers[1] = malloc((local_M+2)*(local_N+2)*sizeof(real_t));
+    buffers[2] = malloc((local_M+2)*(local_N+2)*sizeof(real_t));
 
     // Get the coordinates of the current process in the Cartesian grid
     int coords[2];
@@ -79,13 +72,13 @@ void domain_initialize(void) {
 
     // Initialize the local buffers with the Gaussian pulse
     int global_i = 0, global_j = 0;
-    for (int_t i = 0; i < local_N; i++) {
-        for (int_t j = 0; j < local_M; j++) {
+    for (int_t i = 0; i < local_M; i++) {
+        for (int_t j = 0; j < local_N; j++) {
             // Calculate global indices
-            global_i = coords[0] * local_N + i;
-            global_j = coords[1] * local_M + j;
+            global_i = coords[0] * local_M + i;
+            global_j = coords[1] * local_N + j;
             // Calculate delta (radial distance) adjusted for N x M grid
-            real_t delta = sqrt(((global_i - N/2.0) * (global_i - N/2.0)) / (real_t) N + ((global_j - M/2.0) * (global_j - M/2.0)) / (real_t) M);
+            real_t delta = sqrt(((global_i - M/2.0) * (global_i - M/2.0)) / (real_t) M + ((global_j - N/2.0) * (global_j - N/2.0)) / (real_t) N);
             U_prv(i, j) = U(i, j) = exp(-4.0 * delta * delta);
         }
     }
@@ -95,7 +88,6 @@ void domain_initialize(void) {
 // END: T4
 }
 
-
 // Get rid of all the memory allocations
 void domain_finalize(void) {
     free(buffers[0]);
@@ -103,17 +95,16 @@ void domain_finalize(void) {
     free(buffers[2]);
 }
 
-
 // TASK: T5
 // Integration formula
 void time_step(void) {
 // BEGIN: T5
     // Calculate the local dimensions for each process
-    int local_N = N / dims[0];
-    int local_M = M / dims[1];
+    int local_M = M / dims[0];
+    int local_N = N / dims[1];
 
-    for(int_t i = 0; i < local_N; i++) {
-        for(int_t j = 0; j < local_M; j++) {
+    for(int_t i = 0; i < local_M; i++) {
+        for(int_t j = 0; j < local_N; j++) {
             U_nxt(i, j) = -U_prv(i, j) + 2.0 * U(i, j) + (dt * dt * c * c) / (dx * dy) * (U(i - 1, j) + U(i + 1, j) + U(i, j - 1) + U(i, j + 1) - 4.0 * U(i, j));
         }
     }
@@ -124,124 +115,128 @@ void time_step(void) {
 // Communicate the border between processes.
 void border_exchange(void) {
 // BEGIN: T6
-    int local_N = N / dims[0];
-    int local_M = M / dims[1];
+    // Calculate the local dimensions for each process
+    int local_M = M / dims[0];
+    int local_N = N / dims[1];
 
-    MPI_Request requests[8];
-    int req_count = 0;
+    // Define MPI data types for exchanging columns and rows
+    MPI_Datatype dom_column, dom_row;
+    int north, south, east, west;
 
-    // Get the coordinates of the current process in the Cartesian grid
-    int coords[2];
-    MPI_Cart_coords(cart_comm, world_rank, 2, coords);
+    // Create a vector data type for a column
+    MPI_Type_vector(local_M, 1, local_N + 2, MPI_DOUBLE, &dom_column);
+    MPI_Type_commit(&dom_column);
 
-    // Send to the left, receive from the right
-    if (coords[1] > 0) {
-        MPI_Isend(&U(0, 0), local_N, MPI_DOUBLE, world_rank - 1, 0, cart_comm, &requests[req_count++]);
-        MPI_Irecv(&U(0, -1), local_N, MPI_DOUBLE, world_rank - 1, 0, cart_comm, &requests[req_count++]);
-    }
-    // Send to the right, receive from the left
-    if (coords[1] < dims[1] - 1) {
-        MPI_Isend(&U(0, local_M - 1), local_N, MPI_DOUBLE, world_rank + 1, 0, cart_comm, &requests[req_count++]);
-        MPI_Irecv(&U(0, local_M), local_N, MPI_DOUBLE, world_rank + 1, 0, cart_comm, &requests[req_count++]);
-    }
-    // Send to the top, receive from the bottom
-    if (coords[0] > 0) {
-        MPI_Isend(&U(0, 0), local_M, MPI_DOUBLE, world_rank - dims[1], 0, cart_comm, &requests[req_count++]);
-        MPI_Irecv(&U(-1, 0), local_M, MPI_DOUBLE, world_rank - dims[1], 0, cart_comm, &requests[req_count++]);
-    }
-    // Send to the bottom, receive from the top
-    if (coords[0] < dims[0] - 1) {
-        MPI_Isend(&U(local_N - 1, 0), local_M, MPI_DOUBLE, world_rank + dims[1], 0, cart_comm, &requests[req_count++]);
-        MPI_Irecv(&U(local_N, 0), local_M, MPI_DOUBLE, world_rank + dims[1], 0, cart_comm, &requests[req_count++]);
+    // Create a contiguous data type for a row
+    MPI_Type_contiguous(local_N, MPI_DOUBLE, &dom_row);
+    MPI_Type_commit(&dom_row);
+
+    // Determine the ranks of the neighboring processes
+    MPI_Cart_shift(cart_comm, 0, 1, &north, &south);
+    MPI_Cart_shift(cart_comm, 1, 1, &west, &east);
+
+    // Exchange columns with the west neighbor
+    if(west >= 0) {
+        MPI_Sendrecv(&U(0, 0), 1, dom_column, west, 0, &U(0, -1), 1, dom_column, west, 0, cart_comm, MPI_STATUS_IGNORE);
     }
 
-    // Wait for all non-blocking communications to complete
-    MPI_Waitall(req_count, requests, MPI_STATUSES_IGNORE);
+    // Exchange columns with the east neighbor
+    if(east >= 0) {
+        MPI_Sendrecv(&U(0, local_N - 1), 1, dom_column, east, 0, &U(0, local_N), 1, dom_column, east, 0, cart_comm, MPI_STATUS_IGNORE);
+    }
+
+    // Exchange rows with the north neighbor
+    if(north >= 0) {
+        MPI_Sendrecv(&U(0, 0), 1, dom_row, north, 0, &U(-1, 0), 1, dom_row, north, 0, cart_comm, MPI_STATUS_IGNORE);
+    }
+
+    // Exchange rows with the south neighbor
+    if(south >= 0) {
+        MPI_Sendrecv(&U(local_M - 1, 0), 1, dom_row, south, 0, &U(local_M, 0), 1, dom_row, south, 0, cart_comm, MPI_STATUS_IGNORE);
+    }
+
+    // Free the MPI data types
+    MPI_Type_free(&dom_column);
+    MPI_Type_free(&dom_row);
 // END: T6
 }
-
 
 // TASK: T7
 // Neumann (reflective) boundary condition
 void boundary_condition(void) {
 // BEGIN: T7
-    int local_N = N / dims[0];
-    int local_M = M / dims[1];
+    // Calculate the local dimensions for each process
+    int local_M = M / dims[0];
+    int local_N = N / dims[1];
+    int north, south, west, east;
 
-    // Get the coordinates of the current process in the Cartesian grid
-    int coords[2];
-    MPI_Cart_coords(cart_comm, world_rank, 2, coords);
+    // Determine the ranks of the neighboring processes
+    MPI_Cart_shift(cart_comm, 0, 1, &north, &south);
+    MPI_Cart_shift(cart_comm, 1, 1, &west, &east);
 
-    // Apply boundary conditions only on the processes at the boundaries
-    if (coords[1] == 0) { // Left boundary
-        for (int_t i = 0; i < local_N; i++) {
-            U(i, -1) = U(i, 1);
+    // Set the proper boundary conditions if the process does not have a neighbor in that direction
+    if(west < 0) {
+        // Reflective boundary condition on the west side
+        for(int i = 0; i < local_M; i++) {
+            U(i,-1) = U(i,1);
         }
     }
-    if (coords[1] == dims[1] - 1) { // Right boundary
-        for (int_t i = 0; i < local_N; i++) {
-            U(i, local_M) = U(i, local_M - 2);
+    if(east < 0) {
+        // Reflective boundary condition on the east side
+        for(int i = 0; i < local_M; i++) {
+            U(i,local_N)  = U(i,local_N-2);
         }
     }
-    if (coords[0] == 0) { // Top boundary
-        for (int_t j = 0; j < local_M; j++) {
-            U(-1, j) = U(1, j);
+    if(north < 0) {
+        // Reflective boundary condition on the north side
+        for(int j = 0; j < local_N; j++) {
+            U(-1,j) = U(1,j);
         }
     }
-    if (coords[0] == dims[0] - 1) { // Bottom boundary
-        for (int_t j = 0; j < local_M; j++) {
-            U(local_N, j) = U(local_N - 2, j);
+    if(south < 0) {
+        // Reflective boundary condition on the south side
+        for(int j = 0; j < local_N; j++) {
+            U(local_M,j)  = U(local_M-2,j);
         }
     }
 // END: T7
 }
 
-
 // TASK: T8
-// Save the present time step in a numbered file under 'data/'
+// Save the present time step in a numbered file under 'data/' using MPI I/O
 void domain_save(int_t step) {
 // BEGIN: T8
+    MPI_File fh;
+    MPI_Status status;
+    MPI_Offset base_offset;
     char filename[256];
     sprintf(filename, "data/%.5ld.dat", step);
 
-    MPI_File fh;
-    MPI_Offset offset;
-    MPI_Datatype filetype;
-
     // Calculate the local dimensions for each process
-    int local_N = N / dims[0];
-    int local_M = M / dims[1];
+    int local_M = M / dims[0];
+    int local_N = N / dims[1];
 
     // Get the coordinates of the current process in the Cartesian grid
     int coords[2];
     MPI_Cart_coords(cart_comm, world_rank, 2, coords);
 
-    // Create the file and set the view
+    // Calculate the offset for each process
+    base_offset = ((coords[0] * local_M * N) + (coords[1] * local_N)) * sizeof(real_t);
+
+    // Open the file in write mode
     MPI_File_open(cart_comm, filename, MPI_MODE_CREATE | MPI_MODE_WRONLY, MPI_INFO_NULL, &fh);
 
-    // Define the file type for the subarray
-    int gsizes[2] = {N, M};
-    int lsizes[2] = {local_N, local_M};
-    int starts[2] = {coords[0] * local_N, coords[1] * local_M};
-
-    MPI_Type_create_subarray(2, gsizes, lsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &filetype);
-    MPI_Type_commit(&filetype);
-
-    // Set the file view
-    MPI_File_set_view(fh, 0, MPI_DOUBLE, filetype, "native", MPI_INFO_NULL);
-
-    // Write the local array to the file
+    // Write the local subgrid to the file using MPI_File_write_at_all
+    MPI_Offset offset;
     for (int_t i = 0; i < local_N; i++) {
-        MPI_File_write(fh, &U(i, 0), local_M, MPI_DOUBLE, MPI_STATUS_IGNORE);
+        offset = base_offset + i * N * sizeof(real_t);
+        MPI_File_write_at_all(fh, offset, &U(i, 0), local_N, MPI_DOUBLE, &status);
     }
 
     // Close the file
     MPI_File_close(&fh);
-
-    MPI_Type_free(&filetype);
 // END: T8
 }
-
 
 // Main time integration.
 void simulate(void) {
@@ -261,7 +256,6 @@ void simulate(void) {
     }
 }
 
-
 int main (int argc, char **argv) {
 
     // TASK: T1c
@@ -271,7 +265,6 @@ int main (int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank); 
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     // END: T1c
-
 
     // TASK: T3
     // Distribute the user arguments to all the processes
@@ -306,7 +299,6 @@ int main (int argc, char **argv) {
 
     // Set up the initial state of the domain
     domain_initialize();
-
 
     struct timeval t_start, t_end;
 
