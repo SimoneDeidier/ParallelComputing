@@ -1,4 +1,4 @@
-CC=gcc
+CC=gcc-14
 CFLAGS+= -std=c99 -fopenmp
 LDLIBS+= -lm
 SEQUENTIAL_SRC_FILES=wave_2d_sequential.c
