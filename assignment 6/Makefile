@@ -1,6 +1,5 @@
 clean:
 	rm mandel
-	rm mandel2.bmp
 	rm -r mandel.dSYM
 
 main: mandel.cu
