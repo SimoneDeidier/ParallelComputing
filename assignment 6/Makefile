@@ -1,8 +1,8 @@
 clean:
-	rm mandel_c
+	rm mandel
 	rm mandel2.bmp
-	rm -r mandel_c.dSYM
+	rm -r mandel.dSYM
 
-main: mandel_c.c
-	nvcc -o mandel_c mandel_c.c
-	./mandel_c 1
+main: mandel.cu
+	nvcc -o mandel mandel.cu
+	./mandel 1
