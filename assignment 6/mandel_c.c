@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include<sys/time.h>
+#include <cuda_runtime.h>
 
 #define XSIZE 2560
 #define YSIZE 2048
