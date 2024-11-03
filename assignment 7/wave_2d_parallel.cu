@@ -53,10 +53,10 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 // Rotate the time step buffers.
 void move_buffer_window(void) {
-    real_t* temp = h_buffers[0];
-    h_buffers[0] = h_buffers[1];
-    h_buffers[1] = h_buffers[2];
-    h_buffers[2] = temp;
+    real_t* temp = d_buffers[0];
+    d_buffers[0] = d_buffers[1];
+    d_buffers[1] = d_buffers[2];
+    d_buffers[2] = temp;
 }
 
 
@@ -92,29 +92,37 @@ void domain_finalize(void) {
 // TASK: T6
 // Neumann (reflective) boundary condition
 // BEGIN: T6
+// Kernel to apply Neumann (reflective) boundary conditions
 __global__ void boundary_condition_kernel(real_t* d_buffers, int_t N, int_t M) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
+    // Apply boundary conditions along the vertical edges
     if (idx < M) {
         d_buffers[(idx + 1) * (N + 2)] = d_buffers[(idx + 1) * (N + 2) + 2];
         d_buffers[(idx + 1) * (N + 2) + (N + 1)] = d_buffers[(idx + 1) * (N + 2) + (N - 1)];
     }
 
+    // Apply boundary conditions along the horizontal edges
     if (idx < N) {
         d_buffers[idx + 1] = d_buffers[(N + 2) + (idx + 1)];
         d_buffers[(M + 1) * (N + 2) + (idx + 1)] = d_buffers[(M - 1) * (N + 2) + (idx + 1)];
     }
 }
 
+// Function to launch the boundary condition kernel
 void boundary_condition(void) {
     int threadsPerBlock = 256;
     int blocksPerGridM = (M + threadsPerBlock - 1) / threadsPerBlock;
     int blocksPerGridN = (N + threadsPerBlock - 1) / threadsPerBlock;
 
+    // Launch kernel for vertical edges
     boundary_condition_kernel<<<blocksPerGridM, threadsPerBlock>>>(d_buffers[1], N, M);
+    // Launch kernel for horizontal edges
     boundary_condition_kernel<<<blocksPerGridN, threadsPerBlock>>>(d_buffers[1], N, M);
 
+    // Check for any errors in kernel launch
     cudaErrorCheck(cudaPeekAtLastError());
+    // Synchronize device to ensure completion
     cudaErrorCheck(cudaDeviceSynchronize());
 }
 // END: T6
