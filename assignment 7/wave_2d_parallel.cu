@@ -45,10 +45,7 @@ real_t* d_buffers[3] = {NULL, NULL, NULL};
 #define U_nxt(i,j) buffers[2][((i) + 1) * (N + 2) + (j) + 1]
 // END: T1b
 
-#define cudaErrorCheck(ans) { 
-    gpuAssert((ans), __FILE__, __LINE__);
-
-}
+#define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
     if(code != cudaSuccess) {
         fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
