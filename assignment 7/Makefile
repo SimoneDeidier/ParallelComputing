@@ -31,3 +31,7 @@ parallel_movie: dirs parallel
 	./parallel
 	make plot
 	make movie
+sequential_movie: dirs sequential
+	./sequential
+	make plot
+	make movie
