@@ -31,18 +31,15 @@ int_t N = 128, M = 128, max_iteration = 1000000, snapshot_freq = 1000;
 const real_t c  = 1.0, dx = 1.0, dy = 1.0;
 real_t dt;
 
-// Buffers for three time steps, indexed with 2 ghost points for the boundary
-real_t* buffers[3] = {NULL, NULL, NULL};
-
 // Host variables
 real_t* h_buffers[3] = {NULL, NULL, NULL};
 
 // Device variables
 real_t* d_buffers[3] = {NULL, NULL, NULL};
 
-#define U_prv(i,j) buffers[0][((i) + 1) * (N + 2) + (j) + 1]
-#define U(i,j)     buffers[1][((i) + 1) * (N + 2) + (j) + 1]
-#define U_nxt(i,j) buffers[2][((i) + 1) * (N + 2) + (j) + 1]
+#define U_prv(i,j) h_buffers[0][((i) + 1) * (N + 2) + (j) + 1]
+#define U(i,j)     h_buffers[1][((i) + 1) * (N + 2) + (j) + 1]
+#define U_nxt(i,j) h_buffers[2][((i) + 1) * (N + 2) + (j) + 1]
 // END: T1b
 
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -56,10 +53,10 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 
 // Rotate the time step buffers.
 void move_buffer_window(void) {
-    real_t* temp = buffers[0];
-    buffers[0] = buffers[1];
-    buffers[1] = buffers[2];
-    buffers[2] = temp;
+    real_t* temp = h_buffers[0];
+    h_buffers[0] = h_buffers[1];
+    h_buffers[1] = h_buffers[2];
+    h_buffers[2] = temp;
 }
 
 
