@@ -27,3 +27,7 @@ check: dirs sequential parallel
 	rm -rf data_sequential
 clean:
 	-rm -fr sequential parallel data images data_sequential wave.mp4
+parallel_movie: dirs parallel
+	./parallel
+	make plot
+	make movie
