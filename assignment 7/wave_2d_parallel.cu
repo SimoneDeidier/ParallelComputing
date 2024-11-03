@@ -165,17 +165,22 @@ void simulate(void) {
         if((iteration % snapshot_freq) == 0) {
             // Copy the device buffer to the host buffer
             cudaErrorCheck(cudaMemcpy(h_buffers[1], d_buffers[1], (M + 2) * (N + 2) * sizeof(real_t), cudaMemcpyDeviceToHost));
+            printf("[ DEBUG ]: Saving snapshot\n");
             domain_save(iteration / snapshot_freq);
         }
 
         // Derive step t+1 from steps t and t-1
+        printf("[ DEBUG ]: Boundary condition\n");
         boundary_condition();
+        printf("[ DEBUG ]: Time step\n");
         time_step_kernel<<<numBlocks, threadsPerBlock>>>(d_buffers[0], d_buffers[1], d_buffers[2], N, M, dt, c, dx, dy);
         cudaErrorCheck(cudaPeekAtLastError());
         cudaErrorCheck(cudaDeviceSynchronize());
+        printf("[ DEBUG ]: Move buffer window\n");
 
         // Rotate the time step buffers
         move_buffer_window();
+        printf("[ DEBUG ]: Iteration %ld\n", iteration);
     }
 // END: T7
 }
@@ -286,19 +291,27 @@ void domain_initialize(void) {
 
 int main(void) {
     // Set up the initial state of the domain
+    printf("[ DEBUG ] Initializing domain\n");
     domain_initialize();
+    printf("[ DEBUG ] Domain initialized\n");
 
     struct timeval t_start, t_end;
 
+    printf("[ DEBUG ] Starting simulation\n");
     gettimeofday(&t_start, NULL);
     simulate();
     gettimeofday(&t_end, NULL);
+    printf("[ DEBUG ] Simulation complete\n");
 
     printf("Total elapsed time: %lf seconds\n", WALLTIME(t_end) - WALLTIME(t_start));
 
+    printf("[ DEBUG ] Calculating occupancy\n");
     occupancy();
+    printf("[ DEBUG ] Occupancy calculated\n");
 
     // Clean up and shut down
+    printf("[ DEBUG ] Finalizing domain\n");
     domain_finalize();
+    printf("[ DEBUG ] Domain finalized\n");
     exit(EXIT_SUCCESS);
 }
