@@ -131,11 +131,15 @@ void boundary_condition(void) {
 // TASK: T5
 // Integration formula
 // BEGIN; T5
+// Kernel function to compute the next time step of the wave equation
 __global__ void time_step_kernel(real_t* d_buffers0, real_t* d_buffers1, real_t* d_buffers2, int_t N, int_t M, real_t dt, real_t c, real_t dx, real_t dy) {
+    // Calculate the global row and column indices
     int i = blockIdx.y * blockDim.y + threadIdx.y;
     int j = blockIdx.x * blockDim.x + threadIdx.x;
 
+    // Ensure the indices are within the bounds of the grid
     if(i < M && j < N) {
+        // Compute the next time step using the finite difference method
         d_buffers2[(i + 1) * (N + 2) + (j + 1)] = -d_buffers0[(i + 1) * (N + 2) + (j + 1)] 
             + 2.0 * d_buffers1[(i + 1) * (N + 2) + (j + 1)] 
             + (dt * dt * c * c) / (dx * dy) * (d_buffers1[(i) * (N + 2) + (j + 1)] 
@@ -146,12 +150,19 @@ __global__ void time_step_kernel(real_t* d_buffers0, real_t* d_buffers1, real_t*
     }
 }
 
+// Function to launch the time step kernel
 void time_step(void) {
+    // Define the grid and block dimensions
     dim3 threadsPerBlock(16, 16);
     dim3 numBlocks((N + threadsPerBlock.x - 1) / threadsPerBlock.x, (M + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
+    // Launch the kernel to compute the next time step
     time_step_kernel<<<numBlocks, threadsPerBlock>>>(d_buffers[0], d_buffers[1], d_buffers[2], N, M, dt, c, dx, dy);
+    
+    // Check for any errors in kernel launch
     cudaErrorCheck(cudaPeekAtLastError());
+    
+    // Synchronize device to ensure completion
     cudaErrorCheck(cudaDeviceSynchronize());
 }
 // END: T5
@@ -190,16 +201,22 @@ void simulate(void) {
 // GPU occupancy
 void occupancy(void) {
 // BEGIN: T8
+    // Get device properties for device 0
     cudaDeviceProp prop;
     cudaErrorCheck(cudaGetDeviceProperties(&prop, 0));
 
+    // Maximum number of threads per block
     int maxThreadsPerBlock = prop.maxThreadsPerBlock;
+    // Maximum number of blocks per streaming multiprocessor
     int maxBlocksPerSM = prop.maxThreadsPerMultiProcessor / maxThreadsPerBlock;
+    // Number of streaming multiprocessors
     int numSMs = prop.multiProcessorCount;
 
+    // Calculate the maximum number of active blocks per multiprocessor
     int maxActiveBlocks;
     cudaErrorCheck(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&maxActiveBlocks, time_step_kernel, maxThreadsPerBlock, 0));
 
+    // Calculate the theoretical occupancy
     float occupancy = (float)(maxActiveBlocks * maxThreadsPerBlock) / (float)(maxBlocksPerSM * numSMs * maxThreadsPerBlock);
     printf("Grid size set to %d x %d\n", maxBlocksPerSM, maxThreadsPerBlock);
     printf("Launched block of size %d x %d\n", numSMs, maxActiveBlocks);
@@ -211,8 +228,9 @@ void occupancy(void) {
 // TASK: T2
 // Make sure at least one CUDA-capable device exists
 static bool init_cuda() {
-// BEGIN: T2
+    // BEGIN: T2
     int device_count;
+    // Get the number of CUDA-capable devices
     cudaError_t err = cudaGetDeviceCount(&device_count);
     if(err != cudaSuccess || device_count == 0) {
         fprintf(stderr, "No CUDA-compatible device found.\n");
@@ -221,6 +239,7 @@ static bool init_cuda() {
 
     printf("CUDA device count: %d\n", device_count);
 
+    // Iterate through each device and print its properties
     for(int device = 0; device < device_count; ++device) {
         cudaDeviceProp device_prop;
         err = cudaGetDeviceProperties(&device_prop, device);
@@ -239,15 +258,15 @@ static bool init_cuda() {
         printf("\tPer-block registers: %d\n", device_prop.regsPerBlock);
     }
 
+    // Set the device to be used for GPU executions
     err = cudaSetDevice(0);
-
     if(err != cudaSuccess) {
         fprintf(stderr, "Failed to set device 0: %s\n", cudaGetErrorString(err));
         return false;
     }
 
     return true;
-// END: T2
+    // END: T2
 }
 
 
